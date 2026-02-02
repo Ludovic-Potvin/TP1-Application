@@ -33,8 +33,8 @@ class CryptoWorker:
     supplémentaires en vous aidant des "docstrings".
     """
     def __init__(self) -> None:
-        self.aes_key = None
-        self.hmac_key = None
+        self.aes_key: bytearray | None = None
+        self.hmac_key: bytearray | None = None
 
     def _clean_memory(self) -> None:
         """
@@ -49,8 +49,17 @@ class CryptoWorker:
         à usage interne uniquement, à vous de
         déterminer quand et comment l'appeler.
         """
+        
+        if self.aes_key:
+            for i in range(len(self.aes_key)):
+                self.aes_key[i] = 0
 
-        # TODO: compléter la fonction.
+        if self.hmac_key:
+            for i in range(len(self.hmac_key)):
+                self.hmac_key[i] = 0
+
+        del self.aes_key
+        del self.hmac_key
 
         print("DEBUG: Nettoyage mémoire (fonction à implémenter pour le TP)")
 
@@ -69,6 +78,20 @@ class CryptoWorker:
             Si aucune clé n'est trouvée dans
             le stockage sécurisé.
         """
+        
+        try:
+            key = keyring.get_password(
+                service_name=SERVICE_NAME,
+                username=ACCOUNT_NAME,
+            )
+        except:
+            raise RuntimeError
+        
+        aes_hex, hmac_hex = str(key).split(":")
+
+        self.aes_key = bytearray.fromhex(aes_hex)
+        self.hmac_key = bytearray.fromhex(hmac_hex)
+        
 
         # TODO: compléter la fonction.
 
@@ -79,20 +102,17 @@ class CryptoWorker:
         Vérifie si une clé existe dans le
         stockage sécurisé via keyring.
 
-        Retourne le résultat au format JSON
-        sur la sortie standard (stdout) tel que :
-        {"exists": True} ou {"exists": False}
-        """
+            Retourne le résultat au format JSON
+            sur la sortie standard (stdout) tel que :
+            {"exists": True} ou {"exists": False}
+            """
 
-        # TODO: compléter la fonction.
-
-        # Exemple de retour attendu (hardcodé
-        # ici pour l'exemple).
-        # Vous pouvez passer is_key à True ou
-        # False pour tester le comportement
-        # des autres parties de l'application.
-        is_key = True
-        print(json.dumps({"exists": bool(is_key)}))
+        key = keyring.get_password(
+            service_name=SERVICE_NAME,
+            username=ACCOUNT_NAME,
+        )
+        key_exist = key is not None
+        print(json.dumps({"exists": bool(key_exist)}))
 
     def generate_key(self) -> None:
         """
@@ -106,7 +126,16 @@ class CryptoWorker:
         et stockées dans keyring au format : <aes_hex>:<hmac_hex>
         """
 
-        # TODO: compléter la fonction.
+        self.aes_key = bytearray(os.urandom(32))
+        self.hmac_key = bytearray(os.urandom(32))
+
+        keyring.set_password(
+            service_name=SERVICE_NAME,
+            username=ACCOUNT_NAME,
+            password=f'{self.aes_key.hex()}:{self.hmac_key.hex()}',
+        )
+        
+        self._clean_memory()
 
         print("DEBUG: Génération de clé (fonction à implémenter pour le TP)")
 
@@ -132,6 +161,8 @@ class CryptoWorker:
         6. Calculer HMAC sur IV + ciphertext
         7. Écrire IV + ciphertext + HMAC dans le fichier de sortie
         """
+        
+        iv = os.urandom(32)
 
         # TODO: compléter la fonction.
 
