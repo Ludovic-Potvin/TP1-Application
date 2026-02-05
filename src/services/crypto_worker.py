@@ -27,6 +27,10 @@ import keyring
 SERVICE_NAME = "UQAC-8INF333"
 ACCOUNT_NAME = "TP1-APP"
 
+IV_SIZE = 16
+KEY_SIZE = 32
+AES_BLOCK_SIZE = 128
+
 
 class CryptoWorker:
     """
@@ -128,8 +132,8 @@ class CryptoWorker:
         et stockées dans keyring au format : <aes_hex>:<hmac_hex>
         """
 
-        self.aes_key = bytearray(os.urandom(32))
-        self.hmac_key = bytearray(os.urandom(32))
+        self.aes_key = bytearray(os.urandom(KEY_SIZE))
+        self.hmac_key = bytearray(os.urandom(KEY_SIZE))
 
         keyring.set_password(
             service_name=SERVICE_NAME,
@@ -174,29 +178,29 @@ class CryptoWorker:
             file_content = f.read()
 
         # 3
-        padder = padding.PKCS7(256).padder()
+        padder = padding.PKCS7(AES_BLOCK_SIZE).padder()
         padded_password = padder.update(file_content) + padder.finalize()
 
         # 4
-        iv = os.urandom(16)
+        iv = os.urandom(IV_SIZE)
 
         # 5
         cipher = Cipher(
             algorithms.AES(self.aes_key), modes.CBC(iv), backend=default_backend()
         )
         encryptor = cipher.encryptor()
-        cypher_text = encryptor.update(padded_password) + encryptor.finalize()
+        cipher_text = encryptor.update(padded_password) + encryptor.finalize()
 
         # 6
         h = hmac.HMAC(self.hmac_key, hashes.SHA256())
-        h.update(iv + cypher_text)
-        hmac_text = h.finalize()
+        h.update(iv + cipher_text)
+        hmac_tag = h.finalize()
 
         # 7
         with open(output_path, "wb") as f:
             f.write(iv)
-            f.write(cypher_text)
-            f.write(hmac_text)
+            f.write(cipher_text)
+            f.write(hmac_tag)
 
         self._clean_memory()
 
@@ -233,39 +237,47 @@ class CryptoWorker:
         6. Écrire les données déchiffrée
            dans le fichier de sortie
         """
+
         # 1
         self._load_keys()
-
         if self.aes_key is None or self.hmac_key is None:
             self._clean_memory()
             raise RuntimeError
 
         # 2
-        with open(input_path, "rb") as f:
-            file_content = f.read()
+        try:
+            with open(input_path, "rb") as f:
+                file_content = f.read()
+        except:
+            raise RuntimeError
 
         # 3
-        padder = padding.PKCS7(256).padder()
-        padded_password = padder.update(file_content) + padder.finalize()
+        iv = file_content[:IV_SIZE]
+        hmac_tag = file_content[-KEY_SIZE:]
+        cipher_text = file_content[IV_SIZE:-KEY_SIZE]
+
+        # Hmac validation
+        try:
+            h = hmac.HMAC(self.hmac_key, hashes.SHA256())
+            h.update(iv + cipher_text)
+            h.verify(hmac_tag)
+        except:
+            raise RuntimeError
 
         # 4
-        iv = os.urandom(16)
-
-        # 5
         cipher = Cipher(
             algorithms.AES(self.aes_key), modes.CBC(iv), backend=default_backend()
         )
-        encryptor = cipher.encryptor()
-        cypher_text = encryptor.update(padded_password) + encryptor.finalize()
+        decryptor = cipher.decryptor()
+        padded_text = decryptor.update(cipher_text) + decryptor.finalize()
+
+        # 5
+        unpadder = padding.PKCS7(AES_BLOCK_SIZE).unpadder()
+        content_text = unpadder.update(padded_text) + unpadder.finalize()
 
         # 6
-        h = hmac.HMAC(self.hmac_key, hashes.SHA256())
-        h.update(iv + cypher_text)
-        hmac_text = h.finalize()
-
-        # 7
         with open(output_path, "wb") as f:
-            f.write(cypher_text)
+            f.write(content_text)
 
         self._clean_memory()
 
