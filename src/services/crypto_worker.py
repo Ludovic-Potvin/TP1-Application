@@ -1,7 +1,11 @@
-import os
-import keyring
 import argparse
 import json
+import os
+
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import hashes, hmac, padding
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+import keyring
 
 ####
 #
@@ -32,6 +36,7 @@ class CryptoWorker:
     marquées d'un "TODO" sans utiliser de dépendances
     supplémentaires en vous aidant des "docstrings".
     """
+
     def __init__(self) -> None:
         self.aes_key: bytearray | None = None
         self.hmac_key: bytearray | None = None
@@ -49,7 +54,7 @@ class CryptoWorker:
         à usage interne uniquement, à vous de
         déterminer quand et comment l'appeler.
         """
-        
+
         if self.aes_key:
             for i in range(len(self.aes_key)):
                 self.aes_key[i] = 0
@@ -78,7 +83,7 @@ class CryptoWorker:
             Si aucune clé n'est trouvée dans
             le stockage sécurisé.
         """
-        
+
         try:
             key = keyring.get_password(
                 service_name=SERVICE_NAME,
@@ -86,14 +91,11 @@ class CryptoWorker:
             )
         except:
             raise RuntimeError
-        
+
         aes_hex, hmac_hex = str(key).split(":")
 
         self.aes_key = bytearray.fromhex(aes_hex)
         self.hmac_key = bytearray.fromhex(hmac_hex)
-        
-
-        # TODO: compléter la fonction.
 
         print("DEBUG: Chargement des clés (fonction à implémenter pour le TP)")
 
@@ -105,7 +107,7 @@ class CryptoWorker:
             Retourne le résultat au format JSON
             sur la sortie standard (stdout) tel que :
             {"exists": True} ou {"exists": False}
-            """
+        """
 
         key = keyring.get_password(
             service_name=SERVICE_NAME,
@@ -132,9 +134,9 @@ class CryptoWorker:
         keyring.set_password(
             service_name=SERVICE_NAME,
             username=ACCOUNT_NAME,
-            password=f'{self.aes_key.hex()}:{self.hmac_key.hex()}',
+            password=f"{self.aes_key.hex()}:{self.hmac_key.hex()}",
         )
-        
+
         self._clean_memory()
 
         print("DEBUG: Génération de clé (fonction à implémenter pour le TP)")
@@ -161,12 +163,46 @@ class CryptoWorker:
         6. Calculer HMAC sur IV + ciphertext
         7. Écrire IV + ciphertext + HMAC dans le fichier de sortie
         """
-        
-        iv = os.urandom(32)
+        # 1
+        self._load_keys()
+        if self.aes_key is None or self.hmac_key is None:
+            self._clean_memory()
+            raise RuntimeError
 
-        # TODO: compléter la fonction.
+        # 2
+        with open(input_path, "rb") as f:
+            file_content = f.read()
 
-        print(f"DEBUG: Chiffrement de {input_path} vers {output_path} (fonction à implémenter pour le TP)")
+        # 3
+        padder = padding.PKCS7(256).padder()
+        padded_password = padder.update(file_content) + padder.finalize()
+
+        # 4
+        iv = os.urandom(16)
+
+        # 5
+        cipher = Cipher(
+            algorithms.AES(self.aes_key), modes.CBC(iv), backend=default_backend()
+        )
+        encryptor = cipher.encryptor()
+        cypher_text = encryptor.update(padded_password) + encryptor.finalize()
+
+        # 6
+        h = hmac.HMAC(self.hmac_key, hashes.SHA256())
+        h.update(iv + cypher_text)
+        hmac_text = h.finalize()
+
+        # 7
+        with open(output_path, "wb") as f:
+            f.write(iv)
+            f.write(cypher_text)
+            f.write(hmac_text)
+
+        self._clean_memory()
+
+        print(
+            f"DEBUG: Chiffrement de {input_path} vers {output_path} (fonction à implémenter pour le TP)"
+        )
 
     def decrypt(self, input_path: str, output_path: str) -> None:
         """
@@ -197,10 +233,45 @@ class CryptoWorker:
         6. Écrire les données déchiffrée
            dans le fichier de sortie
         """
+        # 1
+        self._load_keys()
 
-        # TODO: compléter la fonction.
+        if self.aes_key is None or self.hmac_key is None:
+            self._clean_memory()
+            raise RuntimeError
 
-        print(f"DEBUG: Déchiffrement de {input_path} vers {output_path} (fonction à implémenter pour le TP)")
+        # 2
+        with open(input_path, "rb") as f:
+            file_content = f.read()
+
+        # 3
+        padder = padding.PKCS7(256).padder()
+        padded_password = padder.update(file_content) + padder.finalize()
+
+        # 4
+        iv = os.urandom(16)
+
+        # 5
+        cipher = Cipher(
+            algorithms.AES(self.aes_key), modes.CBC(iv), backend=default_backend()
+        )
+        encryptor = cipher.encryptor()
+        cypher_text = encryptor.update(padded_password) + encryptor.finalize()
+
+        # 6
+        h = hmac.HMAC(self.hmac_key, hashes.SHA256())
+        h.update(iv + cypher_text)
+        hmac_text = h.finalize()
+
+        # 7
+        with open(output_path, "wb") as f:
+            f.write(cypher_text)
+
+        self._clean_memory()
+
+        print(
+            f"DEBUG: Déchiffrement de {input_path} vers {output_path} (fonction à implémenter pour le TP)"
+        )
 
 
 def main() -> None:
